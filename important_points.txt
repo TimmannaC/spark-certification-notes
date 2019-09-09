@@ -1,0 +1,947 @@
+https://stackoverflow.com/questions/31508083/difference-between-dataframe-dataset-and-rdd-in-spark/31508314#31508314
+
+1) Dataframe uses catalyst tree transformation framework in 4 phases.
+    1.Analyzing a logical plan to resolve references
+    2.Logical plan optimization
+    3.Physical planning
+    4.Code generation to compile parts of the query to Java bytecode.
+
+2) Datasets
+    - extension of Dataframe that provide Object oriented programing API and strong-type.
+    - It is a strongly-typed, immutable collection of objects that are mapped to a relational schema.
+    - At the core of the Dataset, API is a new concept called an encoder, which is responsible for 
+        converting between JVM objects and tabular representation.
+    - The tabular representation is stored using Spark internal Tungsten binary format, allowing for 
+        operations on serialized data and improved memory utilization.
+    
+    Dataset Features:-
+        - Provides best of both RDD and Dataframe: RDD(functional programming, type safe), 
+            DataFrame (relational model, Query optimazation , Tungsten execution, sorting and shuffling)
+        - Encoders: With the use of Encoders, it is easy to convert any JVM object into a Dataset, 
+            allowing users to work with both structured and unstructured data unlike Dataframe.
+        - Programming Languages supported: Datasets API is currently only available in Scala and Java.
+         Python and R are currently not supported in version 1.6. Python support is slated for version 2.0.
+        - Type Safety: Datasets API provides compile time safety which was not available in Dataframes. 
+
+3) spark uses an engine called catalyst that maintains its own type information through the planning & processing of work.
+4) Dataframes types are checked at runtime.
+5) Dataset types are checked at compile-time.
+6) In scala.
+    - DataFrame = DataSet[Row]
+    - The Row type is Spark's internal representation of its optimized in-memory format for computation.
+7) Spark uses the catalog, a repository of all table and DataFrame information, to resolve columns and
+    tables in the analyzer.
+8) the Catalyst Optimizer, a collection of rules that attempt to optimize the logical plan by pushing down
+    predicates or selections.
+9) Physical planning results in a series of RDDs and transformations.
+10) There are a lot of different ways to construct and refer to columns but the two simplest ways are by
+    using the col or column functions.
+11)  short hands used in scala to refer an column.
+    // in Scala
+    $"myColumn"
+    'myColumn
+12) Columns provide a subset of expression functionality.
+13) Row objects internally represent arrays of bytes.
+14) Rows themselves do not have schemas.
+15) the select method when you’re working with columns or expressions, and the selectExpr method when you’re working with expressions in strings.
+16)select and selectExpr allow you to do the DataFrame equivalent of SQL queries on a table of data.
+17) to evalute an expresssion on df.
+        - df.select(expr("count * 10"))
+        - df.selectExpr("count * 10")
+18) One common error is attempting to mix Column objects and strings.
+        - For example, the following code will result in a compiler error:
+            df.select(col("DEST_COUNTRY_NAME"), "DEST_COUNTRY_NAME")
+        - The following code works.
+            df.select(col("DEST_COUNTRY_NAME"), col("DEST_COUNTRY_NAME"))
+19) rename the column using below commands.
+    df.select(expr("DEST_COUNTRY_NAME AS destination")).show(2)
+    or
+    df.select(expr("DEST_COUNTRY_NAME as destination").alias("DEST_COUNTRY_NAME")).show(2)
+    
+    NOTE : Spark has a shorthand for doing this efficiently: selectExpr.
+    df.selectExpr("DEST_COUNTRY_NAME as newColumnName", "DEST_COUNTRY_NAME").show(2)
+    - We can treat selectExpr as a simple way to build up complex expressions that create new DataFrames.
+    - We can add any valid non-aggregating SQL statement, and as long as the columns resolve, it will be valid!
+    df.selectExpr("*","(DEST_COUNTRY_NAME = ORIGIN_COUNTRY_NAME) as withinCountry").show(2)
+
+    - With select expression, we can also specify aggregations over the entire DataFrame by taking advantage of the functions that we have.
+    df.selectExpr("avg(count)", "count(distinct(DEST_COUNTRY_NAME))").show(2)
+
+20) By default Spark is case insensitive; however, you can make Spark case sensitive by setting the configuration:  
+    -- IN SQL
+    set spark.sql.caseSensitive true
+
+21) An advanced tip is to use asc_nulls_first, desc_nulls_first, asc_nulls_last, or desc_nulls_last to specify where you would like your 
+    null values to appear in an ordered DataFrame.
+    -eg orderby.
+        df.orderBy(desc("count"),asc("DEST_COUNTRY"))
+
+22) For optimization purposes, it’s sometimes advisable to sort within each partition before another set of transformations. 
+        You can use the sortWithinPartitions method to do this.
+
+        spark.read.format("json").load("").sortWithinPartitions("count")
+
+23) Repartition will incur a full shuffle of the data, regardless of whether one is necessary. This means that you should 
+    typically only repartition when the future number of partitions is greater than your current number of partitions or 
+    when you are looking to partition by a set of columns.
+
+// in Scala
+df.rdd.getNumPartitions // 1
+df.repartition(5)
+df.repartition(5, col("DEST_COUNTRY_NAME"))
+
+
+24) Coalesce, will not incur a full shuffle and will try to combine partitions.
+
+25) data to driver.
+val collectDF = df.limit(10)
+collectDF.take(5) // take works with an Integer count
+collectDF.show() // this prints it out nicely
+collectDF.show(5, false)
+collectDF.collect()
+
+- There’s an additional way of collecting rows to the driver in order to iterate over the entire dataset. The method 
+    toLocalIterator collects partitions to the driver as an iterator. This method allows you to iterate over the entire 
+    dataset partition-by-partition in a serial manner.
+    
+    collectDF.toLocalIterator()
+
+26) This is actually a bit of a trick because a DataFrame is just a Dataset of Row types, so you’ll
+    actually end up looking at the Dataset methods.
+
+27) Dataset submodules like DataFrameStatFunctions and DataFrameNaFunctions have more
+    methods that solve specific sets of problems.
+    - DataFrameStatFunctions, for example, holds a variety of statistically related functions, 
+    - DataFrameNaFunctions refers to functions that are relevant when working with null data.
+
+28) Expressing to power.
+    - the pow function that raises a column to the expressed power.
+    - (the current quantity * the unit price) 2 + 5.
+    import org.apache.spark.sql.functions.{expr, pow}
+    val fabricatedQuantity = pow(col("Quantity") * col("UnitPrice"), 2) + 5
+
+29) 
+    - If you’d like to just round to a whole number, oftentimes you can cast the value to an integer and that will work just fine.
+    - Spark also has more detailed functions for performing this explicitly and to a certain level of precision.
+    - In the following example, we round to one decimal place
+        import org.apache.spark.sql.functions.{round,bround}
+        df.select(round(col("UnitPrice"), 1).alias("rounded"), col("UnitPrice")).show(5)
+    
+    - By default, the round function rounds up if you’re exactly in between two numbers. You can round down by using the bround.
+    import org.apache.spark.sql.functions.lit
+    df.select(round(lit("2.5")), bround(lit("2.5"))).show(2) // 3.0 | 2.0
+
+30) Another numerical task is to compute the correlation of two columns.
+    eg:
+        import org.apache.spark.sql.functions.{corr}
+        df.stat.corr("Quantity", "UnitPrice")
+        df.select(corr("Quantity", "UnitPrice")).show()
+
+31) - Another common task is to compute summary statistics for a column or set of columns.
+    - We can use the describe method to achieve exactly this. 
+    - This will take all numeric columns and calculate the count,mean, standard deviation, min, and max.
+
+    - df.describe().show()
+
+32) we can also add a unique ID to each row by using the function monotonically_increasing_id.
+33) The initcap(First letter capitalizer) function will capitalize every word in a given string when that word is separated from another by a space.
+    
+    import org.apache.spark.sql.functions.{initcap}
+    df.select(initcap(col("Description"))).show(2, false)
+
+    - you can cast strings in uppercase and lowercase, as well
+    import org.apache.spark.sql.functions.{lower, upper}
+    df.select(col("Description"),
+        lower(col("Description")),
+        upper(lower(col("Description")))).show(2)
+
+    Description| lower(Description)|upper(lower(Description))|
+    +--------------------+--------------------+--------------+
+    |WHITE HANGING HEA...|white hanging hea...|WHITE HANGING |
+
+
+34) Adding or removing spaces around a string.
+    - You can do this by using lpad,ltrim, rpad and rtrim, trim
+    import org.apache.spark.sql.functions.{lit, ltrim, rtrim, rpad, lpad, trim}
+df.select(
+    ltrim(lit("HELLO")).as("ltrim"),
+    rtrim(lit("HELLO")).as("rtrim"),
+    trim(lit("HELLO")).as("trim"),
+    lpad(lit("HELLO"), 3, " ").as("lp"),
+    rpad(lit("HELLO"), 10, " ").as("rp")).show(2)
+
+    ltrim|rtrim| trim| lp|rp|
+    +---------+---------+-----+---+----------+
+    |HELLO|HELLO|HELLO| HE|HELLO|
+
+
+// Regular Expressions
+
+35) There are two key functions in Spark that you’ll need in order to perform regular expression tasks: 
+        - regexp_extract and regexp_replace. These functions extract values and replace values, respectively.
+
+        import org.apache.spark.sql.functions.regexp_replace
+        val simpleColors = Seq("black", "white", "red", "green", "blue")
+        val regexString = simpleColors.map(_.toUpperCase).mkString("|")
+        // the | signifies `OR` in regular expression syntax
+        df.select(
+        regexp_replace(col("Description"), regexString, "COLOR").alias("color_clean"),
+        col("Description")).show(2)
+
+
+        |color_clean         |    Description     |  
+        +--------------------+--------------------+
+        |COLOR HANGING HEA...|WHITE HANGING HEA...|
+
+36) task might be to replace given characters with other characters. Spark also provides the translate function to replace these values.
+    - This is done at the character level and will replace all instances of a character with the indexed character in the replacement string
+
+    import org.apache.spark.sql.functions.translate
+    df.select(translate(col("Description"), "LEET", "1337"), col("Description")).show(2)
+
+    |translate(Description, LEET, 1337)|Description|
+    +----------------------------------+-----------+
+    | WHI73 HANGING H3A... | WHITE HANGING HEA...  |
+
+
+37) Sometimes, rather than extracting values, we simply want to check for their existence. We can do this with the contains 
+    method on each column. This will return a Boolean declaring whether the value you specify is in the column’s string.
+
+
+DATE & TIMESTAMP.
+
+38) spark uses java date & timestamp classes.
+    import org.apache.spark.sql.functions.{current_date, current_timestamp}
+    val dateDF = spark.range(10)
+    .withColumn("today", current_date())
+    .withColumn("now", current_timestamp())
+
+    - Now that we have a simple DataFrame to work with, let’s add and subtract five days from today.
+        These functions take a column and then the number of days to either add or subtract as the arguments:
+    
+    // in Scala
+        import org.apache.spark.sql.functions.{date_add, date_sub}
+        dateDF.select(date_sub(col("today"), 5), date_add(col("today"), 5)).show(1)
+
+39) The common task is to take a look at the difference between two dates.
+    - We can do this with the datediff function that will return the number of days in between two dates.
+    - there also exists a function, months_between, that gives you the number of months between two dates
+    - import org.apache.spark.sql.functions.datediff
+        dateDF.withColumn("week_ago",date_sub(col("today"),7)).select(datediff(col("week_ago"),col("today"))).show()
+
+40) The to_date function allows you to convert a string to a date, optionally with a specified format.
+41) Spark will not throw an error if it cannot parse the date; rather, it will just return null. To fix this problem 
+    Thefirst step is to remember that we need to specify our date format according to the Java SimpleDateFormat standard.
+
+42) Now let’s use an example of to_timestamp, which always requires a format to be specified
+    import org.apache.spark.sql.functions.to_timestamp
+    cleanDateDF.select(to_timestamp(col("date"), 'yyyy-dd-MM')).show()
+
+43) comparing the dates.
+    One minor point is that we can also set this as a string, which Spark parses to a literal:
+    cleanDateDF.filter(col("date2") > "'2017-12-12'").show()
+
+//Working with Nulls in Data
+44) The primary way of interacting with null values, at DataFrame scale, is to use the .na subpackage on a DataFrame.
+45) There are two things you can do with null values: you can explicitly drop nulls or you can fill them with a value 
+    (globally or on a per-column basis).
+
+46) Spark includes a function to allow you to select the first non-null value from a set of columns by using the coalesce function.
+    import org.apache.spark.sql.functions.coalesce
+    df.select(coalesce(col("Description"), col("CustomerId"))).show()
+
+NOTE : 
+    1) coalesce function present in sql package in dataset class is used to avoid full shuffling of data.
+    2) coalesce function present in sql.functions package is used to select first non-null value from a set of columns.
+
+
+47) There are several other SQL functions that you can use to achieve similar things.
+    1) ifnull allows you to select the second value if the first is null, and defaults to the first.
+    2) nullif, which returns null if the two values are equal or else returns the second if they are not.
+    3) nvl returns the second value if the first is null, but defaults to the first.
+    4) nvl2 returns the second value if the first is not null; otherwise, it will return the last specified value
+
+    eg :
+        ifnull(null, 'return_value'),
+        nullif('value', 'value'),
+        nvl(null, 'return_value'),
+        nvl2('not_null', 'return_value', "else_value")
+
+        |   a        |  b |     c      |    d       |
+        +------------+----+------------+------------+
+        |return_value|null|return_value|return_value|
+
+48) The simplest function is drop, which removes rows that contain nulls. The default is to drop any row in which any value is null
+    - drop() takes an argument.
+        1) any :  Drops the entire row if it consists of atleast one null value.
+        2) all :  Drops the entire row if all values are null in a row.
+
+    df.na.drop()
+    df.na.drop("any")
+
+    - Specifying "any" as an argument drops a row if any of the values are null. 
+    - Using “all” drops the row only if all values are null or NaN for that row:
+    df.na.drop("all")
+
+    - We can also apply this to certain sets of columns by passing in an array of columns
+        // in Scala
+        df.na.drop("all", Seq("StockCode", "InvoiceNo"))
+
+49) Using the fill function, you can fill one or more columns with a set of values. This can be done by specifying a map—that is 
+    a particular value and a set of columns.
+    - For example, to fill all null values in columns of type String, you might specify the following:
+        df.na.fill("All Null values become this string")
+    - We could do the same for columns of type Integer by using df.na.fill(5:Integer), or for Doubles df.na.fill(5:Double).
+    - To specify columns, we just pass in an array of column names like we did in the previous example:
+        df.na.fill(5, Seq("StockCode", "InvoiceNo"))
+    - We can also do this with with a Scala Map
+        val fillColValues = Map("StockCode" -> 5, "Description" -> "No Value")
+        df.na.fill(fillColValues)
+
+50) In addition to replacing null values like we did with drop and fill, there are more flexible options
+    that you can use with more than just null values.
+    - the most common use case is to replace all values in a certain column according to their current value.
+    df.na.replace("Description",Map("" -> "UNKNOWN"))
+
+
+complex Types.
+- There are three kinds of complex types: structs, arrays, and maps.
+- We can determine the array’s length by querying for its size
+    - import org.apache.spark.sql.functions.size
+      df.select(size(split(col("Description"), " "))).show(2) // shows 5 and 3
+
+- We can also see whether this array contains a value:
+    import org.apache.spark.sql.functions.array_contains
+    df.select(array_contains(split(col("Description"), " "), "WHITE")).show(2)
+
+- The explode function takes a column that consists of arrays and creates one row (with the rest of the
+    values duplicated) per value in the array.
+
+- Map   
+    import org.apache.spark.sql.functions.map
+    df.select(map(col("Description"), col("InvoiceNo")).alias("complex_map")).show(2)
+
+
+Working with JSON.
+51) Spark has some unique support for working with JSON data. You can operate directly on strings of JSON in Spark and 
+    parse from JSON or extract JSON objects.
+
+    val jsonDF = spark.range(1).selectExpr("""'{"myJSONKey" : {"myJSONValue" : [1, 2, 3]}}' as jsonString""")
+
+    - You can use the get_json_object to inline query a JSON object, be it a dictionary or array. 
+    - You can use json_tuple if this object has only one level of nesting.
+
+    // in Scala
+    import org.apache.spark.sql.functions.{get_json_object, json_tuple}
+    jsonDF.select(
+    get_json_object(col("jsonString"), "$.myJSONKey.myJSONValue[1]") as "column",
+    json_tuple(col("jsonString"), "myJSONKey")).show(2)
+
+    |  column  |   c0  |
+    +-------+------------------------+|
+    |    2     |{"myJSONValue":[1,2,3]|
+
+52) You can also turn a StructType into a JSON string by using the to_json function
+
+    import org.apache.spark.sql.functions.to_json
+    df.selectExpr("(InvoiceNo, Description) as myStruct")
+    .select(to_json(col("myStruct")))
+
+53) You can use the from_json function to parse this (or other JSON data) back in.
+   
+    import org.apache.spark.sql.functions.from_json
+    import org.apache.spark.sql.types._
+    val parseSchema = new StructType(Array(
+    new StructField("InvoiceNo",StringType,true),
+    new StructField("Description",StringType,true)))
+    df.selectExpr("(InvoiceNo, Description) as myStruct")
+    .select(to_json(col("myStruct")).alias("newJSON"))
+    .select(from_json(col("newJSON"), parseSchema), col("newJSON")).show(2)
+
+User-Defined Functions
+
+54) One of the most powerful things that you can do in Spark is define your own functions.
+
+    val udfExampleDF = spark.range(5).toDF("num")
+    def power3(number:Double):Double = number * number * number
+    power3(2.0)
+
+    - Now that we’ve created these functions and tested them, we need to register them with Spark so that we can use them on 
+        all of our worker machines.
+    - Spark will serialize the function on the driver and transfer it over the network to all executor processes.
+    - When you use the function, there are essentially two different things that occur. 
+    - If the function is written in Scala or Java, you can use it within the Java Virtual Machine (JVM).
+    - If the function is written in Python, something quite different happens. 
+    - Spark starts a Python process on the worker, serializes all of the data to a format that Python can understand 
+      (remember, it was in the JVM earlier), executes the function row by row on that data in the Python process, 
+      and then finally returns the results of the row operations to the JVM and Spark.
+    - First, we need to register the function to make it available as a DataFrame function
+    
+        - import org.apache.spark.sql.functions.udf
+            val power3udf = udf(power3(_:Double):Double)
+        
+    - We can use that just like any other DataFrame function
+        df.select(power3udf(col("num"))).show()
+
+NOTE : 
+    1) we can use this UDF only as a DataFrame function.
+    2) That is to say, we can’t use it within a string expression, only on an expression.
+    3) However, we can also register this UDF as a Spark SQL function.
+    4) This is valuable because it makes it simple to use this function within SQL as well as across languages.
+
+Let’s register the function in Scala:
+    -   spark.udf.register("power3", power3(_:Double):Double)
+        udfExampleDF.selectExpr("power3(num)").show(2)   
+
+NOTE : In UDF if you specify the type that doesn’t align with the actual type returned by the function, Spark will not
+        throw an error but will just return null to designate a failure.
+
+
+## Hive UDFs
+   - you can also use UDF/UDAF creation via a Hive syntax. To allow for this, first you must enable Hive support when 
+     they create their SparkSession (via SparkSession.builder().enableHiveSupport()).
+    - in SQL
+    CREATE TEMPORARY FUNCTION myFunc AS 'com.organization.hive.udf.FunctionName'
+
+// Aggregations
+
+NOTE : 
+    1) when performing a count(*), Spark will count null values (including rows containing all nulls).
+    2) when counting an individual column, Spark will not count the null values.
+
+55) countDistinct:
+    - import org.apache.spark.sql.functions.countDistinct
+      df.select(countDistinct("StockCode")).show() // 4070
+
+56) approx_count_distinct:
+    - There are times when an approximation to a certain degree of accuracy will work just fine, and for that, you
+        can use the approx_count_distinct function.
+
+    import org.apache.spark.sql.functions.approx_count_distinct
+    df.select(approx_count_distinct("StockCode", 0.1)).show() // 3364
+
+    - You will notice that approx_count_distinct took another parameter with which you can specify the maximum estimation error allowed.
+    - we specified a rather large error and thus receive an answer that is quite far off but does complete more quickly than countDistinct.
+
+57) first and last:
+    - You can get the first and last values from a DataFrame by using these two obviously named functions.
+    - This will be based on the rows in the DataFrame, not on the values in the DataFrame
+
+    import org.apache.spark.sql.functions.{first, last}
+    df.select(first("StockCode"), last("StockCode")).show()
+
+58) min and max:
+    - To extract the minimum and maximum values from a DataFrame, use the min and max functions:
+        import org.apache.spark.sql.functions.{min,max}
+        df.select(min("Quantity"),max("Quantity")).show()
+
+59) sum and sumDistinct:
+    - sum is to add all the values in a row.
+    - You can sum a distinct set of values by using the sumDistinct
+
+        import org.apache.spark.sql.functions.sumDistinct
+        df.select(sumDistinct("Quantity")).show() // 29310
+
+60) Variance and Standard Deviation:
+    - These are both measures of the spread of the data around the mean.
+    - The variance is the average of the squared differences from the mean
+    - The standard deviation is the square root of the variance.
+    - Spark has both the formula for the sample standard deviation as well as the formula for the population standard deviation.
+    - By default, Spark performs the formula for the sample standard deviation or variance if you use the variance or stddev functions.
+
+        import org.apache.spark.sql.functions.{var_pop, stddev_pop}
+        import org.apache.spark.sql.functions.{var_samp, stddev_samp}
+        df.select(var_pop("Quantity"), var_samp("Quantity"),
+        stddev_pop("Quantity"), stddev_samp("Quantity")).show()
+
+61) skewness and kurtosis:
+    - Skewness and kurtosis are both measurements of extreme points in your data.
+    - Skewness measures the asymmetry of the values in your data around the mean, whereas kurtosis is a measure of the tail of data.
+
+        import org.apache.spark.sql.functions.{skewness, kurtosis}
+        df.select(skewness("Quantity"), kurtosis("Quantity")).show()
+
+62) Covariance and Correlation:
+    - We discussed single column aggregations, but some functions compare the interactions of the values in two difference columns together
+    - Two of these functions are cov and corr, for covariance and correlation, respectively. 
+    - Correlation measures the Pearson correlation coefficient, which is scaled between –1 and +1. The covariance is scaled according to the inputs in the data.
+
+        import org.apache.spark.sql.functions.{corr, covar_pop, covar_samp}
+        df.select(corr("InvoiceNo", "Quantity"), covar_samp("InvoiceNo", "Quantity"),
+        covar_pop("InvoiceNo", "Quantity")).show()
+
+
+63) Aggregating to Complex Types
+    - we can collect a list of values present in a given column or only the unique values by collecting to a set.
+        import org.apache.spark.sql.functions.{collect_set, collect_list}
+        df.agg(collect_set("Country"), collect_list("Country")).show()
+
+Grouping
+64) 
+    - we have performed only DataFrame-level aggregations.
+    - A more common task is to perform calculations based on groups in the data.
+    
+
+JOINS.
+
+- Inner joins (keep rows with keys that exist in the left and right datasets)
+- Outer joins (keep rows with keys in either the left or right datasets)
+- Left outer joins (keep rows with keys in the left dataset)
+- Right outer joins (keep rows with keys in the right dataset)
+- Left semi joins (keep the rows in the left, and only the left, dataset where the key appears in the right dataset)
+- Left anti joins (keep the rows in the left, and only the left, dataset where they do not appear in the right dataset)
+- Natural joins (perform a join by implicitly matching the columns between the two datasets with the same names)
+    - Natural joins make implicit guesses at the columns on which you would like to join.
+- Cross (or Cartesian) joins (match every row in the left dataset with every row in the right dataset)
+
+65) Inner joins are the default join, so we just need to specify our left DataFrame and join the right in the JOIN expression.
+
+66) Handling Duplicate Column Names
+    val joinExpr = gradProgramDupe.col("graduate_program") === person.col("graduate_program")
+    1) Different join expression
+        person.join(gradProgramDupe,"graduate_program").select("graduate_program").show()
+    2) Dropping the column after the join
+        person.join(gradProgramDupe, joinExpr).drop(person.col("graduate_program")).select("graduate_program").show()
+    3) Renaming a column before the join
+        val gradProgram3 = graduateProgram.withColumnRenamed("id", "grad_id")
+        val joinExpr = person.col("graduate_program") === gradProgram3.col("grad_id") 
+        person.join(gradProgram3, joinExpr).show()
+
+67) How Spark Performs Joins
+    - To understand how Spark performs joins, you need to understand the two core resources at play.
+    - The node-to-node communication strategy and per node computation strategy.
+    - Communication Strategies
+        - Spark approaches cluster communication in two different ways during joins.
+            1) It either incurs a shuffle join, which results in an all-to-all communication
+            2) broadcast join
+        
+        1) Big table–to–big table
+            - When you join a big table to another big table, you end up with a shuffle join.
+        2) Big table–to–small table
+            - When the table is small enough to fit into the memory of a single worker node, with some breathing room of course, 
+                we can optimize our join.
+        - we will replicate our small DataFrame onto every worker node in the cluster.
+        - However, what this does is prevent us from performing the all-to-all communication during the entire join process.
+        - Instead, we perform it only once at the beginning and then let each individual worker node perform the work without
+           having to wait or communicate with any other worker node.
+        - For our current set of data, we can see that Spark has automatically set this up as a broadcast join by looking at the explain plan:
+        
+            val joinExpr = person.col("graduate_program") === graduateProgram.col("id")
+            person.join(graduateProgram, joinExpr).explain()
+
+            == Physical Plan ==
+            *BroadcastHashJoin [graduate_program#40], [id#5....
+            :- LocalTableScan [id#38, name#39, graduate_progr...+- BroadcastExchange HashedRelationBroadcastMode(....
+            +- LocalTableScan [id#56, degree#57, departmen....
+
+        - we can also explicitly give the optimizer a hint that we would like to use a broadcast join by using the correct function around the 
+            small DataFrame in question.
+    
+            import org.apache.spark.sql.functions.broadcast
+            val joinExpr = person.col("graduate_program") === graduateProgram.col("id")
+            person.join(broadcast(graduateProgram), joinExpr).explain()
+    
+        - The SQL interface also includes the ability to provide hints to perform joins.
+        - MAPJOIN, BROADCAST, and BROADCASTJOIN all do the same thing and are all supported.
+        
+            -- in SQL
+            SELECT /*+ MAPJOIN(graduateProgram) */ * FROM person JOIN graduateProgram
+            ON person.graduate_program = graduateProgram.id
+
+        3) Little table–to–little table:
+            - When performing joins with small tables, it’s usually best to let Spark decide how to join them. 
+            - You can always force a broadcast join if you’re noticing strange behavior.
+
+// Data Sources
+68) Spark has six “core” data sources and hundreds of external data sources written by the community.
+   - Following are Spark’s core data sources:
+        1) CSV
+        2) JSON
+        3) Parquet
+        4) ORC
+        5) JDBC/ODBC connection
+        6) Plain-text files.
+    - Spark has numerous community-created data sources. like Cassandra,Hbase,MongoDB etc.
+
+    // Read API Structure
+    - The core structure for reading data is as follows:
+        DataFrameReader.format(...).option("key", "value").schema(...).load()
+    - format is optional because by default Spark will use the Parquet format.
+    - option allows you to set key-value configurations to parameterize how you will read data.
+    - schema is optional if the data source provides a schema or if you intend to use schema inference.
+
+        spark.read.format("csv")
+            .option("mode", "FAILFAST")
+            .option("inferSchema", "true")
+            .option("path", "path/to/file(s)")
+            .schema(someSchema)
+            .load()
+
+69) Read modes
+    - Reading data from an external source naturally entails encountering malformed data, especially when working 
+        with only semi-structured data sources. 
+    - Read modes specify what will happen when Spark does come across malformed records.
+
+    Read mode       Description 
+    permissive      Sets all fields to null when it encounters a corrupted record and places all corrupted records in a string column
+                    called _corrupt_record
+
+    dropMalformed   Drops the row that contains malformed records
+
+    failFast        Fails immediately upon encountering malformed records
+
+    NOTE : The default is permissive.
+
+70) Write API Structure.
+
+    The core structure for writing data is as follows:
+        DataFrameWriter.format(...).option(...).partitionBy(...).bucketBy(...).sortBy(...).save()
+
+        // in Scala
+        dataframe.write.format("csv")
+            .option("mode", "OVERWRITE")
+            .option("dateFormat", "yyyy-MM-dd")
+            .option("path", "path/to/file(s)")
+            .save()
+
+71) Save modes.
+    Save modes specify what will happen if Spark finds data at the specified location.
+
+    Save mode           Description
+    append              Appends the output files to the list of files that already exist at that location
+    overwrite           Will completely overwrite any data that already exists there
+    errorIfExists       Throws an error and fails the write if data or files already exist at the specified location
+    ignore              If data or files exist at the location, do nothing with the current DataFrame
+
+    NOTE : The default is errorIfExists.
+
+72) Parquet Files
+    - Parquet is an open source column-oriented data store that provides a variety of storage optimizations, especially for analytics workloads.
+    - It is a file format that works exceptionally well with Apache Spark and is in fact the default file format.
+    - spark.read.format("parquet")
+    - Parquet has very few options because it enforces its own schema when storing data.
+    - We can set the schema if we have strict requirements for what our DataFrame should look like.
+
+73) Query Pushdown
+    - First, Spark makes a best-effort attempt to filter data in the database itself before creating the DataFrame.
+    - For example, in the previous sample query, we can see from the query plan that it selects only the relevant column name from the table:
+
+        dbDataFrame.select("DEST_COUNTRY_NAME").distinct().explain
+        == Physical Plan ==
+        *HashAggregate(keys=[DEST_COUNTRY_NAME#8108], functions=[])
+        +- Exchange hashpartitioning(DEST_COUNTRY_NAME#8108, 200)
+        +- *HashAggregate(keys=[DEST_COUNTRY_NAME#8108], functions=[])
+        +- *Scan JDBCRelation(flight_info) [numPartitions=1] ...
+
+    - Some times you’re going to want to pass an entire query into your SQL that will return the results as a DataFrame instead of a table.
+    - Rather than specifying a table name, you just specify a SQL query.
+
+        val pushdownQuery = """(SELECT DISTINCT(DEST_COUNTRY_NAME) FROM flight_info) AS flight_info"""
+        val dbDataFrame = spark.read.format("jdbc")
+        .option("url", url).option("dbtable", pushdownQuery).option("driver", driver)
+        .load()
+
+74) Reading from databases in parallel
+    - the ability to specify a maximum number of partitions to allow you to limit how much you are reading and writing in parallel.
+       
+        val dbDataFrame = spark.read.format("jdbc")
+            .option("url", url).option("dbtable", tablename).option("driver", driver)
+            .option("numPartitions", 10).load()
+
+75) Managing File Size
+    - You can use the maxRecordsPerFile option and specify a number of your choosing.
+    - This allows you to better control file sizes by controlling the number of records that are written to each file.
+    - For example, if you set an option for a writer as df.write.option("maxRecordsPerFile", 5000), Spark will ensure that
+        files will contain at most 5,000 records.
+
+76) Partitioning
+    - When you write a file to a partitioned directory (or table), you basically encode a column as a folder.
+        csvFile.limit(10).write.mode("overwrite").partitionBy("DEST_COUNTRY_NAME")
+                    .save("/tmp/partitioned-files.parquet")
+
+
+77) Bucketing
+    - Bucketing is another file organization approach with which you can control the data that is specifically written to each file.
+    - This can help avoid shuffles later when you go to read the data because data with the same bucket ID will all be grouped together into one physical partition.
+
+    val numberBuckets = 10
+    val columnToBucketBy = "count"
+
+    csvFile.write.format("parquet").mode("overwrite")
+        .bucketBy(numberBuckets, columnToBucketBy).saveAsTable("bucketedFiles")
+    
+    NOTE : Bucketing is supported only for Spark-managed tables.
+
+
+// Spark SQL
+78) Spark-Managed Tables
+        - One important note is the concept of managed versus unmanaged tables.
+        - When you define a table from files on disk, you are defining an unmanaged table.
+        - When you usesaveAsTable on a DataFrame, you are creating a managed table for which Spark will track of all of
+            the relevant information.
+        
+79) Refreshing Table Metadata
+        - Maintaining table metadata is an important task to ensure that you’re reading from the most recent set of data.
+        - There are two commands to refresh table metadata.
+            - REFRESH table tablename 
+                - REFRESH TABLE refreshes all cached entries (essentially, files) associated with the table
+            - REPAIR TABLE
+                - which refreshes the partitions maintained in the catalog for that given table 
+
+80) Caching Tables  
+    - Just like DataFrames, you can cache and uncache tables.
+        - CACHE TABLE flights
+        - UNCACHE TABLE FLIGHTS
+
+81) There are three core complex types in Spark SQL: structs, lists, and maps.
+    1) Structs
+        - CREATE VIEW IF NOT EXISTS nested_data AS
+            SELECT (DEST_COUNTRY_NAME, ORIGIN_COUNTRY_NAME) as country, count FROM flights
+    2) Lists
+        - You can use the collect_list function, which creates a list of values.
+
+82) User-defined functions
+    - Spark gives you the ability to define your own functions and use them in a distributed manner.
+
+        def power3(number:Double):Double = number * number * number
+        spark.udf.register("power3", power3(_:Double):Double)
+        SELECT count, power3(count) FROM flights
+
+83) Subqueries
+     - In Spark, there are two fundamental subqueries.
+        1) Correlated subqueries use some information from the outer scope of the query in order to supplement information in the subquery.
+        2) Uncorrelated subqueries include no information from the outer scope.
+
+// Datasets
+84) 
+    - Using Datasets, you can define the object that each row in your Dataset will consist of.
+    - In Scala, this will be a case class object that essentially defines a schema that you can use, 
+        and in Java, you will define a Java Bean.
+    - Experienced users often refer to Datasets as the “typed set of APIs” in Spark.
+    - To efficiently support domain-specific objects, a special concept called an “Encoder” is required.
+    - The encoder maps the domain-specific type T to Spark’s internal type system.
+    - An encoder directs Spark to generate code at runtime to serialize the Person object into a binary structure.
+    - When using DataFrames or the “standard” Structured APIs, this binary structure will be a Row.
+    - When you use the Dataset API, for every row it touches, this domain specifies type, Spark converts the Spark Row format to the object you specified (a case class or Java class). 
+    - This conversion slows down your operations but can provide more flexibility.
+
+85) When to Use Datasets
+    - When the operation(s) you would like to perform cannot be expressed using DataFrame manipulations.
+    - When you want or need type-safety, and you’re willing to accept the cost of performance to achieve it.
+    - the Dataset API is type-safe.
+    - Operations that are not valid for their types, say subtracting two string types, will fail at compilation time not at runtime.
+    - If correctness and bulletproof code is your highest priority, at the cost of some performance, this can be a great choice for you.
+    - Another potential time for which you might want to use Datasets is when you would like to reuse a
+        variety of transformations of entire rows between single-node workloads and Spark workloads.
+    - one advantage of using Datasets is that if you define all of your data and transformations as accepting case classes it is 
+      trivial to reuse them for both distributed and local workloads.
+    - Additionally, when you collect your DataFrames to local disk, they will be of the correct class and type, sometimes making further manipulation easier.
+    - when you’d like to collect data to the driver and manipulate it by using single-node libraries, or it might be at the
+      beginning of a transformation when you need to perform per-row parsing before performing filtering and further manipulation in Spark SQL.
+
+86) Creating Datasets
+    - Creating Datasets is somewhat of a manual operation, requiring you to know and define the schemas ahead of time.
+
+87) In Scala: Case Classes
+    - To create Datasets in Scala, you define a Scala case class.A case class is a regular class that has the following characteristics:
+    - Immutable
+    - Decomposable through pattern matching
+    - Allows for comparison based on structure instead of reference
+    - Easy to use and manipulate
+    - When we read in our data, we’ll get a DataFrame. However, we simply use the as method to cast it to our specified row type.
+    - val flightsDF = spark.read
+        .parquet("/data/flight-data/parquet/2010-summary.parquet/")
+        val flights = flightsDF.as[Flight]
+
+88) Grouping and Aggregations
+    - Grouping and aggregations follow the same fundamental standards that we saw in the previous
+      aggregation chapter, so groupBy rollup and cube still apply, but these return DataFrames instead of Datasets (you lose type information):
+        flights.groupBy("DEST_COUNTRY_NAME").count()
+    - An excellent example is the groupByKey method. This allows you to group by a specific key in the Dataset and get a typed Dataset in return.
+        flights.groupByKey(x => x.DEST_COUNTRY_NAME).count()
+    - Although this provides flexibility, it’s a trade-off because now we are introducing JVM types as well as functions that cannot be optimized by Spark.
+    - In the following, you can see that we are effectivelly appending a new column to the DataFrame (the result of our function) and then performing
+        the grouping on that
+
+// RDD
+89) - Spark’s lower-level APIs, specifically the Resilient Distributed Dataset (RDD), the SparkContext,
+        and distributed shared variables like accumulators and broadcast variables.
+    - There are two sets of low-level APIs
+        1) one for manipulating distributed data (RDDs)
+        2) distributing and manipulating distributed shared variables (broadcast variables and accumulators)
+
+90) You should generally use the lower-level APIs in three situations:
+        1) You need some functionality that you cannot find in the higher-level APIs; for example, if you
+            need very tight control over physical data placement across the cluster.
+        2)  You need to maintain some legacy codebase written using RDDs.
+        3)  You need to do some custom shared variable manipulation.
+
+91) Spark workloads compile down to these fundamental primitives.
+92) When you’re calling a DataFrame transformation, it actually just becomes a set of RDD transformations.
+93) A SparkContext is the entry point for low-level API functionality.
+        - spark.sparkContext
+94) an RDD represents an immutable, partitioned collection of records that can be operated on in parallel.
+
+95) Unlike DataFrames though, where each record is a structured row containing fields with a known schema, in RDDs the 
+    records are just Java, Scala, or Python objects of the programmer’s choosing.
+96) RDDs give you complete control because every record in an RDD is a just a Java or Python object.
+97) Spark’s Structured APIs automatically store data in an optimzied, compressed binary format.
+98) creating two types of RDDs: 
+    1) the “generic” RDD type
+    2) key-value RDD that provides additional functions, such as aggregating by key.
+99) The Partitioner is probably one of the core reasons why you might want to use RDDs in your code. 
+100) Specifying your own custom Partitioner can give you significant performance and stability improvements if you use it correctly.
+101) The most likely reason for why you’ll want to use RDDs is because you need fine-grained control over the physical distribution of data (custom partitioning of data).
+102) spark.sparkContext.textFile("/some/path/withTextFiles")
+103) spark.sparkContext.wholeTextFiles("/some/path/withTextFiles")
+104) Manipulating RDDs
+        - the core difference being that you manipulate raw Java or Scala objects instead of Spark types.
+105) countApprox
+        - The confidence is the probability that the error bounds of the result will contain the true value.
+        - The confidence must be in the range [0,1]
+            val confidence = 0.95
+            val timeoutMilliseconds = 400
+            words.countApprox(timeoutMilliseconds, confidence)
+
+106) countApproxDistinct
+        - words.countApproxDistinct(0.05)
+
+107) countByValue
+        - This method counts the number of values in a given RDD. However, it does so by finally loading the
+            result set into the memory of the driver.
+        - words.countByValue()
+        - scala.collection.Map[String,Long] = 
+        Map(Definitive -> 1, Simple -> 1, Processing -> 1, The -> 1, Spark -> 1, Made -> 1, Guide -> 1, Big -> 1, : -> 1, Data -> 1)
+        - The resullt is in Map()
+        - countByValueApprox is similar as countByValue with confidence value(error %).
+            - words.countByValueApprox(1000, 0.95)
+
+108) take
+        words.take(5)
+        words.takeOrdered(5)
+        words.top(5)
+        val withReplacement = true // if true then the result set can have repeated values.
+        val numberToTake = 6
+        val randomSeed = 100L // some value to get the fixed result set.
+        words.takeSample(withReplacement, numberToTake, randomSeed)
+
+        val rdd = sc.parallelize([1,2,3,4,5,6,7,8,9,10])
+
+        takeSample is available only on RDD.
+            eg:
+            rdd.takeSample(true,4) // Array([8], [1], [2], [3])
+            rdd.takeSample(true,4) // Array([3], [5], [5], [6])
+            rdd.takeSample(false,4) // Array([7], [2], [10], [8])
+            rdd.takeSample(false,4) // Array([6], [3], [5], [10])
+            rdd.takeSample(false,4,10) // Array([8], [6], [9], [2])
+            rdd.takeSample(false,4,10) // Array([8], [6], [9], [2])
+            rdd.takeSample(false,4,100) // Array([8], [3], [4], [5])
+            rdd.takeSample(false,4,100) // Array([8], [3], [4], [5])
+
+109) Saving Files
+        - import org.apache.hadoop.io.compress.BZip2Codec
+            words.saveAsTextFile("file:/tmp/bookTitleCompressed", classOf[BZip2Codec])
+        - SequenceFiles
+            - Spark can write to sequenceFiles using the saveAsObjectFile method
+                words.saveAsObjectFile("/tmp/my/sequenceFilePath")
+
+110) Caching
+        - The same principles apply for caching RDDs as for DataFrames and Datasets.
+        - You can either cache or persist an RDD.
+        - By default, cache and persist only handle data in memory.
+            words.cache()
+        - To get the storage level.
+            - words.getStorageLevel
+
+111) Checkpointing
+        - One feature not available in the DataFrame API is the concept of checkpointing.
+        - Checkpointing is the act of saving an RDD to disk so that future references to this RDD point to those intermediate
+            partitions on disk rather than recomputing the RDD from its original source.
+        - This is similar to caching except that it’s not stored in memory, only disk. This can be helpful when performing iterative
+            computation 
+        - spark.sparkContext.setCheckpointDir("/some/path/for/checkpointing")
+            words.checkpoint()
+
+112) mapPartitions
+        - we operate on a per-partition basis and allows us to perform an operation on that entire partition.
+
+113) glom
+        - glom is an interesting function that takes every partition in your dataset and converts them to arrays.
+        - array for each partition is created.
+            spark.sparkContext.parallelize(Seq("Hello", "World"), 2).glom().collect()
+                // Array(Array(Hello), Array(World))
+
+// advanced RDD
+114) Key-Value Basics
+    - Map over your current RDD to a basic key–value structure
+    - This means having two values in each record of your RDD
+    - words.map(word => (word.toLowerCase,1))
+
+115) keyBy
+    - you can also use the keyBy function to achieve the same result by specifying a function that creates the key from your current value.
+    
+116) Mapping over Values
+    - If we have a tuple, Spark will assume that the first element is the key, and the second is the value. 
+    - When in this format,you can explicitly choose to map-over the values (and ignore the individual keys). Of course, you
+      could do this manually, but this can help prevent errors when you know that you are just going to modify the values
+        keyword.mapValues(word => word.toUpperCase).collect()
+
+117) Aggregate
+    - This function requires a null and start value and then requires you to specify two different functions. 
+    - The first aggregates within partitions, the second aggregates across partitions. 
+    - The start value will be used at both aggregation levels
+        nums.aggregate(0)(maxFunc, addFunc)
+    - aggregate does have some performance implications because it performs the final aggregation on the driver. 
+    - If the results from the executors are too large, they can take down the driver with an OutOfMemoryError.
+    - There is another method, treeAggregate that does the same thing as aggregate (at the user level) but does so in a different way. 
+    - It basically “pushes down” some of the subaggregations (creating a tree from executor to executor) before performing the final aggregation on the driver.
+        val depth = 3
+        nums.treeAggregate(0)(maxFunc, addFunc, depth)
+
+118) aggregateByKey
+    - This function does the same as aggregate but instead of doing it partition by partition, it does it by key.
+
+119) foldByKey
+    - foldByKey merges the values for each key using an associative function and a neutral “zero value,”
+        which can be added to the result an arbitrary number of times, and must not change the result (e.g., 0 for addition, or 1 for multiplication)
+    // in Scala
+    KVcharacters.foldByKey(0)(addFunc).collect()
+
+120) CoGroups
+    - CoGroups give you the ability to group together up to three key–value RDDs together in Scala and two in Python.
+
+121) zip.
+    - It does combine two RDDs, so it’s worth labeling it as a join. zip allows you to “zip” together two RDDs, assuming that they have the same length.
+    - This creates a PairRDD. The two RDDs must have the same number of partitions as well as the same number of elements
+
+122) Custom partitioner.
+    - Spark has two built-in Partitioners that you can leverage off in the RDD API, a HashPartitioner for discrete values and a RangePartitioner.
+    
+123) Custom serializer.
+    - Kryo is significantly faster and more compact than Java serialization (often as much as 10x), but does not support all serializable types
+    - we internally use Kryo serializer when shuffling RDDs with simple types, arrays of simple types, or string type.
+
+// Distributed shared variables.
+124) Spark is two types of “distributed shared variables”: broadcast variables and accumulators.
+125) accumulators let you add together data from all the tasks into a shared result.
+126) broadcast variables let you save a large value on all the worker nodes and reuse it across many Spark actions without re-sending it to the cluster.
+127) Broadcast variables are shared, immutable variables that are cached on every machine in the cluster instead of serialized with every single task.
+128) Accumulators provide a mutable variable that a Spark cluster can safely update on a per-row basis.
+129) Accumulators are variables that are “added” to only through an associative and commutative operation and can therefore be efficiently supported in parallel.
+130) You can use them to implement counters (as in MapReduce) or sums.
+131) Iterate over every row in our flights dataset via the foreach method. The reason for this is because foreach is an action, and Spark can provide guarantees that perform only inside of actions.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
