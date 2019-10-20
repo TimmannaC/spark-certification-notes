@@ -1,0 +1,62 @@
+Questions asked during Spark certification exam.
+
+Exam pattern 
+1) 20 MCQ.
+2) 19 Coding Challenge.
+
+
+MCQ's.
+1) Roughly 5 Questions were on scenario based like 4 Cluster configurartions will be provided as questions like
+    - Which Cluster will likely have Max shuffle time.
+    - Which Cluster will likely have Out Of Memeory exception
+    - Which Cluster will likely overcome the driver failure.
+
+2) Roughly 3-4 Questions were on partitons and data size based like.
+    - If We have 8 partitons and TBs of data Which statment is Untrue.
+
+3) Questions on defination of partiton,job were asked.
+4) which of the following is an narrow transformation was asked with below choices.
+    - distinct
+    - createOrReplaceTempView
+    - count
+    - head.
+
+4) which of the following is an action was asked with below choices.
+    - distinct
+    - createOrReplaceTempView
+    - head.
+
+
+Coding Challenge
+- For every question we need to run the .setup cell which will be present in each question page.
+1) Question on encode.
+    given 2 columns
+    [ChangePassword:Boolean,Password:String]    
+    encode Password column with UTF-16 if ChangePassword is true. If ChangePassword is false then take value of Password as 0 and encode with UTF-16.
+
+2) 3-4 questions on udf.
+
+3) Question on union.
+    Given dataframes dfA and dfB. union these 2 and filter with secificed column and return the count.
+
+4) Question on join.
+    Given dataframes dfA and dfB apply outer join and remove duplicate id column which appears when we join.
+    filter with some specified column and return the df.
+
+5) question on dataframe read.
+    Given an csv file path.
+    create an manual schema and apply when reading the csv file in dataframe.
+
+6) question on json.
+    Given an json path.
+    read the json and write it to specified location path with overwrite mode.
+
+7) question on partitions.
+    Given an Parquet file path.
+    Read the specified file and create 16 partitions and write in an overwrite mode at the specified location.
+
+8) question on splitting the fullName.
+    Given an dataframe with fullName(space separation between firstName and LastName).
+    requirement was to split the fullName into firstName and LastName and create new column and set the column value to true if length of firstName is greater then LastName else false.
+
+9) questions on array column were asked.
